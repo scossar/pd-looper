@@ -1,4 +1,5 @@
 #include "m_pd.h"
+#include <math.h>
 
 typedef enum {
   STATE_IDLE,
@@ -13,15 +14,19 @@ typedef struct _looper {
   int x_pd_block_size; // possibly not needed
 
   t_sample *x_input_buffer;
+  t_sample *x_window_buffer;
   t_float x_input_buffer_ms; // could be an int?
   int x_input_buffer_samples;
 
   t_looper_state x_state;
 
-  int x_write_phase;
-  int x_read_phase;
+  int x_write_phase; // input buffer write position
+  int x_read_phase; // input buffer read position
+  int x_loop_pos; // current position in the loop
+
   int x_loop_start;
   int x_loop_length;
+  int x_fade_samples;
 
   t_float x_f; // dummy arg for CLASS_MAINSIGNALIN
 } t_looper;
@@ -44,6 +49,9 @@ static void *looper_new(t_floatarg f) {
   x->x_read_phase = 0;
   x->x_loop_start = 0;
   x->x_loop_length = 0;
+  x->x_loop_pos = 0;
+
+  x->x_fade_samples = 10 * 64; // hmmm
 
   x->x_input_buffer_samples = 1024; // initialize to a small power of 2 value
   x->x_input_buffer = getbytes(x->x_input_buffer_samples * sizeof(t_sample));
@@ -51,6 +59,15 @@ static void *looper_new(t_floatarg f) {
     pd_error(x, "looper~: unable to assign memory to input buffer");
     return NULL;
   }
+
+  x->x_window_buffer = getbytes(x->x_input_buffer_samples * sizeof(t_sample));
+  // handle allocation error here
+
+  x->x_window_buffer = getbytes(x->x_input_buffer_samples * sizeof(t_sample));
+  // if (x->x_window_buffer == NULL) {
+  //   pd_error(x, "looper~: unable to assign memory to window buffer");
+  //   return NULL;
+  // }
 
   outlet_new(&x->x_obj, &s_signal);
 
@@ -66,6 +83,13 @@ static void input_buffer_update(t_looper *x)
   }
 
   x->x_input_buffer = (t_sample *)resizebytes(x->x_input_buffer,
+                                              x->x_input_buffer_samples * sizeof(t_sample),
+                                              buffer_size * sizeof(t_sample));
+  if (x->x_input_buffer == NULL) {
+    pd_error(x, "looper~: unable to resize input buffer");
+    return;
+  }
+  x->x_window_buffer = (t_sample *)resizebytes(x->x_input_buffer,
                                               x->x_input_buffer_samples * sizeof(t_sample),
                                               buffer_size * sizeof(t_sample));
   if (x->x_input_buffer == NULL) {
@@ -102,6 +126,7 @@ static t_int *looper_perform(t_int *w)
   while (n--) {
     t_sample f = *in1++;
     t_sample ls = 0.0f;
+    int distance_to_end;
 
     switch (state) {
       case STATE_IDLE:
@@ -110,10 +135,11 @@ static t_int *looper_perform(t_int *w)
       case STATE_RECORDING:
         vp[write_phase] = f;
         ls = f;
-        // x->x_loop_length++;
         break;
       case STATE_PLAYING:
-        ls = vp[read_phase];
+        x->x_loop_pos++;
+        if (x->x_loop_pos >= x->x_loop_length) x->x_loop_pos = 0;
+        ls = vp[read_phase] * x->x_window_buffer[x->x_loop_pos];
         break;
       }
 
@@ -145,15 +171,20 @@ static void looper_bang(t_looper *x)
 {
   x->x_state = (x->x_state == STATE_RECORDING) ? STATE_PLAYING : STATE_RECORDING;
 
-  // maybe use a case statment?
   if (x->x_state == STATE_RECORDING) {
     x->x_loop_start = x->x_write_phase;
     x->x_loop_length = 0;
   } else {
     x->x_read_phase = x->x_loop_start;
+    x->x_loop_pos = 0;
     x->x_loop_length = (x->x_write_phase - x->x_loop_start) & x->x_input_buffer_samples - 1;
+    for (int i = 0; i < x->x_loop_length; i++) {
+      float phase = (float)i / (x->x_loop_length - 1);
+      x->x_window_buffer[i] = 0.5f * (1.0f - cos(2.0f * M_PI * phase));
+    }
   }
 }
+
  static void looper_idle(t_looper *x)
 {
   x->x_state = STATE_IDLE;
@@ -164,6 +195,11 @@ static void looper_free(t_looper *x) {
   if (x->x_input_buffer != NULL) {
     freebytes(x->x_input_buffer, x->x_input_buffer_samples * sizeof(t_sample));
     x->x_input_buffer = NULL;
+  }
+
+  if (x->x_window_buffer != NULL) {
+    freebytes(x->x_window_buffer, x->x_input_buffer_samples * sizeof(t_sample));
+    x->x_window_buffer = NULL;
   }
 }
 
