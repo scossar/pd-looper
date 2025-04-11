@@ -1,3 +1,5 @@
+// this is turning into a granular synth; not there yet
+
 #include "m_pd.h"
 #include <math.h>
 
