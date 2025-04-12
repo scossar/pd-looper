@@ -134,8 +134,10 @@ static void hanning_window(t_glooper *x)
   x->x_grain_pos = 0;
 }
 
-// note: for the `inline` directive to be respected by the compiler, probably
+// NOTE: for the `inline` directive to be respected by the compiler, probably
 // more this method to a header file
+// this method is using a look-behind approach to interpolation, try look
+// forward, or look both forward and back?
 static inline t_sample cubic_interpolate(t_sample *buffer, int phase, int mask, t_sample frac)
 {
   t_sample a = buffer[phase];
