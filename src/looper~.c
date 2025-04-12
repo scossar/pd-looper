@@ -91,10 +91,10 @@ static void input_buffer_update(t_looper *x)
     pd_error(x, "looper~: unable to resize input buffer");
     return;
   }
-  x->x_window_buffer = (t_sample *)resizebytes(x->x_input_buffer,
+  x->x_window_buffer = (t_sample *)resizebytes(x->x_window_buffer,
                                               x->x_input_buffer_samples * sizeof(t_sample),
                                               buffer_size * sizeof(t_sample));
-  if (x->x_input_buffer == NULL) {
+  if (x->x_window_buffer == NULL) {
     pd_error(x, "looper~: unable to resize input buffer");
     return;
   }
